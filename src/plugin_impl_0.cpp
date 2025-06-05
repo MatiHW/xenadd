@@ -19,14 +19,14 @@ static const char *_features[] =
 static clap_plugin_descriptor _descriptor =
 {
   CLAP_VERSION,
-  "mhw.xenadd",
-  "CLAP Additive Synth who's overtones are tuned to any EDO",
-  "MHW",
-  "",
-  "",
-  "",
+  "com.cockos.clap-example-0",
+  "CLAP Volume/Pan",
+  "cockos",
+  "https://reaper.fm",
+  "https://reaper.fm",
+  "https://reaper.fm",
   "0.0.1",
-  "Additive Synth who's overtones are tuned to any EDO",
+  "volume and pan",
   _features
 };
 
@@ -36,27 +36,12 @@ static const clap_param_info _param_info[NUM_PARAMS] =
   {
     0, CLAP_PARAM_REQUIRES_PROCESS, NULL,
     "Volume", "",
-    -60.0, 0.0, -6.0
+    -60.0, 12.0, 0.0
   },
   {
     1, CLAP_PARAM_REQUIRES_PROCESS, NULL,
-    "Step size", "",
-    0.0, 1200.0, 38.7376020853389291124398
-  }
-  {
-    2, CLAP_PARAM_REQUIRES_PROCESS, NULL,
-    "Reference Frequency (D4)", "",
-    147.0, 587.0, 293.992111
-  }
-  {
-    3, CLAP_PARAM_IS_STEPPED | CLAP_PARAM_REQUIRES_PROCESS, NULL,
-    "Harmonics", "",
-    0, 128, 32
-  }
-  {
-    4, CLAP_PARAM_REQUIRES_PROCESS, NULL,
-    "Falloff", "",
-    0.0, 16.0, 2.0
+    "Pan", "",
+    -100.0, 100.0, 0.0
   }
 };
 
@@ -374,4 +359,3 @@ Plugin *plugin_impl__create_0(const clap_host *host)
 {
   return new Example_0(host);
 }
-
