@@ -91,8 +91,7 @@ struct Example_1 : public Plugin
         _params__convert_value(i, _param_info[i].default_value);
     }
 
-    for (int o = 0; o < 128; o++):
-      m_phase[o]=0.0;
+    for (int o = 0; o < 128; o++) m_phase[o]=0.0;
     m_last_oct=4.0;
     m_hold=0;
 
@@ -136,8 +135,7 @@ struct Example_1 : public Plugin
   bool plugin_impl__activate(double sample_rate, uint32_t min_frames_count, uint32_t max_frames_count)
   {
     m_srate=(int)sample_rate;
-    for (int o = 0; o < 128; o++):
-      m_phase[o]=0.0;
+    for (int o = 0; o < 128; o++) m_phase[o]=0.0;
     return true;
   }
 
@@ -162,8 +160,12 @@ struct Example_1 : public Plugin
   {
     if (!out) return CLAP_PROCESS_ERROR;
 
-    for (int i=start_frame; i < end_frame; ++i) {
-      cout[i] = 0;
+    for (int c=0; c < num_channels; ++c)
+    {
+      T *cout=out[c];
+      for (int i=start_frame; i < end_frame; ++i) {
+        cout[i] = 0;
+      }
     }
 
     double start_vol = start_param_values[PARAM_VOLUME];
@@ -186,7 +188,7 @@ struct Example_1 : public Plugin
         double phase = m_phase[h-1];
         for (int i=start_frame; i < end_frame; ++i)
         {
-          cout[i] += (sin(phase)*vol)/(h**end_param_values[PARAM_FALLOFF]);
+          cout[i] += (sin(phase)*vol)/pow(h,end_param_values[PARAM_FALLOFF]);
           phase += d_phase;
           vol += d_vol;
         }
@@ -373,7 +375,7 @@ struct Example_1 : public Plugin
   bool params__value_to_text(clap_id param_id, double value, char *display, uint32_t size)
   {
     return false;
-    if (!display || !size) return false;
+    /*if (!display || !size) return false;
     if (param_id < 0 || param_id >= NUM_PARAMS) return false;
 
     if (param_id == PARAM_PITCH)
@@ -391,13 +393,13 @@ struct Example_1 : public Plugin
       if (value <= -150.0) strcpy(display, "-inf");
       else sprintf(display, "%+.2f", value);
     }
-    return true;
+    return true;*/
   }
 
   bool params__text_to_value(clap_id param_id, const char *display, double *value)
   {
     return false;
-    if (!display || !value) return false;
+    /*if (!display || !value) return false;
     if (param_id < 0 || param_id >= NUM_PARAMS) return false;
 
     if (param_id == PARAM_PITCH)
@@ -421,7 +423,7 @@ struct Example_1 : public Plugin
       if (!strcmp(display, "-inf")) *value=-150.0;
       else *value=atof(display);
     }
-    return true;
+    return true;*/
   }
 
   void params__flush(const clap_input_events *in, const clap_output_events *out)
