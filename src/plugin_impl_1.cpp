@@ -9,11 +9,7 @@
 #include "main.h"
 #include "imgui/imgui.h"
 
-#define _PI 3.1415926535897932384626433832795
-
-// see imgui_knob.cpp
-bool ImGui_Knob(const char* label, float* p_value, float v_min, float v_max, const char *fmt);
-
+#define _TAU 6.283185307179586476925286766559
 
 static const char *_features[] =
 {
@@ -24,38 +20,51 @@ static const char *_features[] =
 static clap_plugin_descriptor _descriptor =
 {
   CLAP_VERSION,
-  "com.cockos.clap-example-1",
-  "CLAP Tone Generator",
-  "cockos",
-  "https://reaper.fm",
-  "https://reaper.fm",
-  "https://reaper.fm",
+  "mhw.xenadd",
+  "CLAP Additive Synth who's overtones are tuned to any EDO",
+  "MHW",
+  "",
+  "",
+  "",
   "0.0.1",
-  "tone generator",
+  "Additive Synth who's overtones are tuned to any EDO",
   _features
 };
 
-enum {  PARAM_PITCH, PARAM_DETUNE, PARAM_VOLUME, NUM_PARAMS };
+enum {  PARAM_VOLUME, PARAM_STEPSIZE, PARAM_REFFREQ, PARAM_HARMNUM, PARAM_FALLOFF, NUM_PARAMS };
 static const clap_param_info _param_info[NUM_PARAMS] =
 {
   {
-    0, CLAP_PARAM_IS_STEPPED | CLAP_PARAM_REQUIRES_PROCESS, NULL,
-    "Pitch", "",
-    -1.0, 96.0, -1.0 // -1=off
-  },
-  {
-    1, CLAP_PARAM_REQUIRES_PROCESS, NULL,
-    "Detune", "",
-    -100.0, 100.0, 0.0
-  },
-  {
-    2, CLAP_PARAM_REQUIRES_PROCESS, NULL,
+    0, CLAP_PARAM_REQUIRES_PROCESS, NULL,
     "Volume", "",
     -60.0, 0.0, -6.0
   },
+  {
+    1, CLAP_PARAM_REQUIRES_PROCESS, NULL,
+    "Step size", "",
+    0.0, 1.0, (38.7376020853389291124398/1200.0)
+  },
+  {
+    2, CLAP_PARAM_REQUIRES_PROCESS, NULL,
+    "Reference Frequency (D4)", "",
+    147.0, 587.0, 293.992111
+  },
+  {
+    3, CLAP_PARAM_IS_STEPPED | CLAP_PARAM_REQUIRES_PROCESS, NULL,
+    "Harmonics", "",
+    0, 128, 32
+  },
+  {
+    4, CLAP_PARAM_REQUIRES_PROCESS, NULL,
+    "Falloff", "",
+    0.0, 16.0, 2.0
+  }
 };
 
-const char *pitchname[12] = { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
+double mapHarms(int h, double stepsize)
+{   
+  return exp2(stepsize*round(log2(h)/stepsize));
+}
 
 namespace ports
 {
@@ -68,7 +77,7 @@ struct Example_1 : public Plugin
   int m_srate;
   double m_param_values[NUM_PARAMS];
   double m_last_param_values[NUM_PARAMS];
-  double m_phase, m_last_oct;
+  double m_phase[128], m_last_oct;
   int m_hold;
 
   clap_plugin_audio_ports m_clap_plugin_audio_ports;
@@ -82,7 +91,8 @@ struct Example_1 : public Plugin
         _params__convert_value(i, _param_info[i].default_value);
     }
 
-    m_phase=0.0;
+    for (int o = 0; o < 128; o++):
+      m_phase[o]=0.0;
     m_last_oct=4.0;
     m_hold=0;
 
@@ -126,7 +136,8 @@ struct Example_1 : public Plugin
   bool plugin_impl__activate(double sample_rate, uint32_t min_frames_count, uint32_t max_frames_count)
   {
     m_srate=(int)sample_rate;
-    m_phase=0.0;
+    for (int o = 0; o < 128; o++):
+      m_phase[o]=0.0;
     return true;
   }
 
@@ -151,46 +162,38 @@ struct Example_1 : public Plugin
   {
     if (!out) return CLAP_PROCESS_ERROR;
 
+    for (int i=start_frame; i < end_frame; ++i) {
+      cout[i] = 0;
+    }
+
     double start_vol = start_param_values[PARAM_VOLUME];
     double end_vol = end_param_values[PARAM_VOLUME];
     double d_vol = (end_vol-start_vol) / (double)(end_frame-start_frame);
 
-    double start_pitch = start_param_values[PARAM_PITCH];
-    double end_pitch = end_param_values[PARAM_PITCH];
-    double start_phase=m_phase, d_phase=0.0;
-    if (end_pitch >= 0.0)
-    {
-      if (start_pitch < 0.0) start_phase=0.0;
-      else start_pitch += start_param_values[PARAM_DETUNE]*0.01;
-      end_pitch += end_param_values[PARAM_DETUNE]*0.01;
-      double freq = 440.0 * pow(2.0, (end_pitch-57.0)/12.0);
-      d_phase = 2.0 * _PI * freq / (double)m_srate;
-    }
+    double start_reff = start_param_values[PARAM_REFFREQ];
+    double end_reff = end_param_values[PARAM_REFFREQ];
+    double d_reff = (end_reff-start_reff) / (double)(end_frame-start_frame);
 
-    for (int c=0; c < num_channels; ++c)
+    for (int h=1; h<=end_param_values[PARAM_HARMNUM]; h++)
     {
-      T *cout=out[c];
-      if (!cout) return CLAP_PROCESS_ERROR;
-
-      if (d_phase > 0.0)
+      double d_phase = _TAU * (end_reff*mapHarms(h, end_param_values[PARAM_STEPSIZE])) / (double)m_srate;
+      for (int c=0; c < num_channels; ++c)
       {
+        T *cout=out[c];
+        if (!cout) return CLAP_PROCESS_ERROR;
+
         double vol = start_vol;
-        double phase = start_phase;
+        double phase = m_phase[h-1];
         for (int i=start_frame; i < end_frame; ++i)
         {
-          cout[i] = sin(phase)*vol;
+          cout[i] += (sin(phase)*vol)/(h**end_param_values[PARAM_FALLOFF]);
           phase += d_phase;
           vol += d_vol;
         }
       }
-      else
-      {
-        memset(cout+start_frame, 0, (end_frame-start_frame)*sizeof(T));
-      }
+
+      m_phase[h-1] += (double)(end_frame-start_frame)*d_phase;
     }
-
-    m_phase += (double)(end_frame-start_frame)*d_phase;
-
     return CLAP_PROCESS_CONTINUE;
   }
 
@@ -244,74 +247,50 @@ struct Example_1 : public Plugin
 
   void plugin_impl__draw()
   {
-    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(8.0, 16.0));
+    ImGui::Text("Step size (def = 38.737602085339c");
+    
+    float ss=38.737602085339f;
+    const char *lbla="%+.4fc";
+    ss=m_param_values[PARAM_STEPSIZE]*1200.0f;
+    ImGui::SliderFloat("Step (cents)", &ss, 0.0f, 1200.0f, lbla, 1.0f);
+    m_param_values[PARAM_STEPSIZE]=ss/1200.0f;
 
-    ImGui::Text("Tone Generator");
+    ImGui::Text("Reference Frequency (def = 293.992111Hz");
 
-    int cur_pitch = (int)m_param_values[PARAM_PITCH];
-    int pitch_button=-1;
-    for (int i=0; i < 12; ++i)
-    {
-      if (i) ImGui::SameLine();
-      double h = (double)i/12.0;
-      ImColor up = ImColor::HSV(h, 0.5, 0.375), hover = ImColor::HSV(h, 0.5, 0.625), down = ImColor::HSV(h, 0.5, 1.0);
-      if (i == cur_pitch%12) up=hover=down;
-      ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(up));
-      ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(hover));
-      ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(down));
-      char buf[64];
-      sprintf(buf, "%-2s", pitchname[i]);
-      ImGui::Button(buf);
-      ImGui::PopStyleColor(3);
-      if (ImGui::IsItemActive()) pitch_button=i;
-    }
+    float rf=293.992111f;
+    const char *lblb="%+.4fHz";
+    rf=m_param_values[PARAM_REFFREQ];
+    ImGui::SliderFloat("Reference Note (Hertz)", &rf, 147.0f, 587.0f, lblb, 1.0f);
+    m_param_values[PARAM_REFFREQ]=rf;
 
-    ImGui::SameLine(0.0, 24.0);
-    int held = m_hold;
-    ImColor col(0.0f, 0.5f, 1.0f, 1.0f);
-    if (held) ImGui::PushStyleColor(ImGuiCol_Button, col.Value);
-    if (ImGui::Button(" hold ")) m_hold = !m_hold;
-    if (held) ImGui::PopStyleColor();
-
-    if (pitch_button >= 0)
-    {
-      m_param_values[PARAM_PITCH] = (double)(pitch_button + (int)(m_last_oct+0.5)*12);
-    }
-    else if (m_hold && cur_pitch >= 0)
-    {
-      m_param_values[PARAM_PITCH] = (double)(cur_pitch%12 + (int)(m_last_oct+0.5)*12);
-    }
-    else
-    {
-      m_param_values[PARAM_PITCH] = -1;
-    }
-
-    ImGui::Spacing();
-
-    float oct = m_last_oct;
-    ImGui_Knob("Octave", &oct, 1.0f, 8.0f, "%.0f");
-    m_last_oct = oct;
-
-    ImGui::SameLine(0.0, 24.0);
-
-    float detune=(float)m_param_values[PARAM_DETUNE];
-    ImGui_Knob("Detune", &detune, -100.0f, 100.0f, "%+.0f%%");
-    m_param_values[PARAM_DETUNE]=detune;
-
-    ImGui::SameLine(0.0, 24.0);
+    ImGui::Text("Volume (def = -6dB");
 
     float voldb=-60.0;
-    const char *lbl="-inf";
+    const char *lblc="-inf";
     if (m_param_values[PARAM_VOLUME] > 0.001)
     {
       voldb=log(m_param_values[PARAM_VOLUME])*20.0/log(10.0);
-      lbl="%+.1f dB";
+      lblc="%+.1f dB";
     }
-    ImGui_Knob("Volume", &voldb, -60.0, 0.0, lbl);
+    ImGui::SliderFloat("Volume", &voldb, -60.0f, 12.0f, lblc, 1.0f);
     if (voldb > -60.0) m_param_values[PARAM_VOLUME]=pow(10.0, voldb/20.0);
     else m_param_values[PARAM_VOLUME]=0.0;
 
-    ImGui::PopStyleVar();
+    ImGui::Text("Harmonics (def = 16");
+
+    int h=16;
+    h = m_param_values[PARAM_HARMNUM];
+    ImGui::SliderInt("Harmonics (Quantity)", &h, 0, 128);
+    m_param_values[PARAM_HARMNUM];
+
+    ImGui::Text("Falloff (def = 2");
+
+    float fo=2.0f;
+    const char *lbld="%+.4f";
+    fo=m_param_values[PARAM_FALLOFF];
+    ImGui::SliderFloat("Timbre (Harmonic falloff)", &fo, 0.0f, 16.0f, lbld, 1.0f);
+    m_param_values[PARAM_FALLOFF]=fo;
+
   }
 
   bool plugin_impl__get_preferred_size(uint32_t* width, uint32_t* height)
@@ -338,18 +317,26 @@ struct Example_1 : public Plugin
     if (!value) return false;
     if (param_id < 0 || param_id >= NUM_PARAMS) return false;
 
-    if (param_id == PARAM_PITCH)
+    if (param_id == PARAM_STEPSIZE)
     {
-      *value = m_param_values[PARAM_PITCH];
+      *value = m_param_values[PARAM_STEPSIZE]*1200.0f;
     }
-    else if (param_id == PARAM_DETUNE)
+    else if (param_id == PARAM_REFFREQ)
     {
-      *value = m_param_values[PARAM_DETUNE];
+      *value = m_param_values[PARAM_REFFREQ];
     }
     else if (param_id == PARAM_VOLUME)
     {
       if (m_param_values[PARAM_VOLUME] <= 0.0) *value = -150.0;
       else *value = log(m_param_values[PARAM_VOLUME])*20.0/log(10.0);
+    }
+    else if (param_id == PARAM_HARMNUM)
+    {
+      *value = m_param_values[PARAM_HARMNUM];
+    }
+    else if (param_id == PARAM_FALLOFF)
+    {
+      *value = m_param_values[PARAM_FALLOFF];
     }
     return true;
   }
@@ -360,11 +347,11 @@ struct Example_1 : public Plugin
 
     if (param_id < 0 || param_id >= NUM_PARAMS) return 0.0;
 
-    if (param_id == PARAM_PITCH)
+    if (param_id == PARAM_STEPSIZE)
     {
-      return in_value;
+      return in_value*1200.0f;
     }
-    else if (param_id == PARAM_DETUNE)
+    else if (param_id == PARAM_REFFREQ)
     {
       return in_value;
     }
@@ -372,12 +359,20 @@ struct Example_1 : public Plugin
     {
       return in_value > -150.0 ? pow(10.0, in_value/20.0) : 0.0;
     }
-
+    else if (param_id == PARAM_HARMNUM)
+    {
+      return in_value;
+    }
+    else if (param_id == PARAM_FALLOFF)
+    {
+      return in_value;
+    }
     return 0.0;
   }
 
   bool params__value_to_text(clap_id param_id, double value, char *display, uint32_t size)
   {
+    return false;
     if (!display || !size) return false;
     if (param_id < 0 || param_id >= NUM_PARAMS) return false;
 
@@ -401,6 +396,7 @@ struct Example_1 : public Plugin
 
   bool params__text_to_value(clap_id param_id, const char *display, double *value)
   {
+    return false;
     if (!display || !value) return false;
     if (param_id < 0 || param_id >= NUM_PARAMS) return false;
 
@@ -446,7 +442,6 @@ struct Example_1 : public Plugin
       }
     }
   }
-
 };
 
 uint32_t ports::count(const clap_plugin *plugin, bool is_input)
