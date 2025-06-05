@@ -6,13 +6,13 @@ jobs:
   build:
     runs-on: macos-latest
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v4
     - name: select xcode
       run: sudo xcode-select -switch /Applications/Xcode_13.1.app && /usr/bin/xcodebuild -version
     - name: build
       working-directory: build/mac
       run: xcodebuild -project clap-plugin.xcodeproj
-    - uses: actions/upload-artifact@v2
+    - uses: actions/upload-artifact@v4
       with:
         name: clap-example.clap
         path: build/mac/build/Release/clap-example.clap
